@@ -7,6 +7,7 @@ import time
 
 class State:
     def __init__(self, observation):
+        self.states=["position", "velocity", "pole_angle", "pole_angle_velocity"]
         self.position = observation[0]
         self.velocity = observation[2]
         self.pole_angle = observation[1]
@@ -16,16 +17,20 @@ class State:
 class Action:
     def __init__(self, imprinted_velocity:float):
         self.max_imprinted=3.0
-        if imprinted_velocity > self.max_imprinted:
-            imprinted_velocity = self.max_imprinted
-        if imprinted_velocity < -self.max_imprinted:
-            imprinted_velocity = -self.max_imprinted
-        
-        self.action = [imprinted_velocity]
+        self.raw_velocity=imprinted_velocity
+        clipped_velocity = imprinted_velocity
+        if clipped_velocity > self.max_imprinted:
+            clipped_velocity = self.max_imprinted
+        if clipped_velocity < -self.max_imprinted:
+            clipped_velocity = -self.max_imprinted
+
+        self.action = [clipped_velocity]
     def get_action(self):
         return self.action
     def get_velocity(self):
         return self.action[0]
+    def get_raw_velocity(self):
+        return self.raw_velocity
     
 class Interaction:
     def __init__(self, state:State, action:Action, reward:float, terminated:bool, truncated:bool, info:dict):
@@ -91,6 +96,7 @@ class Episode:
                 self.truncated=interaction.truncated
                 self.info=interaction.info
                 break
+
     def one_step(self, cart_model:Cart_model, policy=None):
         if len(self.interactions)==0:
             state, info = cart_model.reset()
@@ -135,19 +141,31 @@ class Episode:
 
 
 class ActorPolicyContinuousSpace:
-    def __init__(self):
+    def __init__(self,alpha_w:float=0.1, alpha_rho:float=0.1, discount:float=0.85):
         self.rho_m_size=2
         self.rho_s_size=2
         self.rho_size=4
         self.rho=[random.uniform(-1, 1) for _ in range(self.rho_size)]
-        self.alpha_w=0.05
+        self.alpha_w=alpha_w
         self.i=1
-        self.alpha_rho=0.05
+        self.alpha_rho=alpha_rho
         self.state=None
-        self.discount=0.95
+        self.discount=discount
         self.w=[random.uniform(-1, 1) for _ in range(self.rho_size)]
         pass
-
+    @staticmethod
+    def get_paramters_samples(self):
+        return {
+            "alpha_w": (0.01,0.05, 0.005),
+            "alpha_rho": (0.01,0.05, 0.005),
+            "discount": (0.99, 0.9),
+        }
+    def get_parameters(self):
+        return {
+            "alpha_w": self.alpha_w,
+            "alpha_rho": self.alpha_rho,
+            "discount": self.discount,
+        }
     def value(self, state:State):
         features=self.get_features(state)
         value=sum([self.w[i]*features[i] for i in range(len(features))])
@@ -182,8 +200,9 @@ class ActorPolicyContinuousSpace:
         self.state=state
         self.i=1
 
-    def update(self, reward, newstate:State,action:Action):
-        gamma=reward+self.discount*self.value(newstate)-self.value(self.state)
+    def update(self, reward, newstate:State,action:Action, terminated:bool=False):
+        bootstrap = 0.0 if terminated else self.value(newstate)
+        gamma=reward+self.discount*bootstrap-self.value(self.state)
         features=self.get_features(self.state)
         for i in range(self.rho_size):
             self.w[i]+=self.alpha_w*gamma*features[i]
