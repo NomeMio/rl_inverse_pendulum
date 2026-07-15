@@ -219,10 +219,20 @@ class sarsaWithQuantization:
     @staticmethod
     def get_paramters_samples():
         return {
-            "actions_buckets": (5, 25, 1),
-            "gamma": (0.70, 0.99, 0.01),
-            "alpha": (0.001, 0.2, 0.001),
+            "actions_buckets": (7, 15, 4),
+            "gamma": (0.79, 0.99, 0.05),
+            "alpha": (0.001, 0.201, 0.05),
         }
+
+    @staticmethod
+    def get_action_bucket_sizes():
+        """All grid values covered by the actions_buckets range in
+        get_paramters_samples(), e.g. (7, 15, 4) -> [7, 11, 15]. Used to
+        compare bucket sizes against each other, each with its own full
+        random search over the remaining hyperparameters."""
+        low, high, step = sarsaWithQuantization.get_paramters_samples()["actions_buckets"]
+        n_steps = round((high - low) / step)
+        return [int(round(low + k * step)) for k in range(n_steps + 1)]
 
     def update(self, state:State, action:Action, reward, next_state:State, next_action:Action, terminated:bool=False):
         self.stepTaken+=1

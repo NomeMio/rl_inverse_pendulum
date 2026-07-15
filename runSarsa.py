@@ -17,7 +17,7 @@ sns.set_theme(style="whitegrid")
 STATE_NAMES = ["position", "velocity", "pole_angle", "pole_angle_velocity"]
 
 N_TRIALS = 15
-TRAIN_EPISODES = 3000
+TRAIN_EPISODES = 100
 RETRAIN_EPISODES = 20000
 EVAL_EPISODES = 200
 SAMPLE_EPISODES = 1000
@@ -126,29 +126,62 @@ def plot_phase_comparison(filepath, phase_metrics: dict):
 
 
 def run_phase(phase_name, run_dir, context, extra_kwargs=None):
+    """Compares every action-bucket size from
+    sarsaWithQuantization.get_action_bucket_sizes() under the same
+    configuration: for each size, actions_buckets is held fixed and a full
+    random search runs over the remaining hyperparameters (gamma, alpha).
+    The bucket size with the best retrained metrics is kept as the phase's
+    overall winner."""
     phase_dir = os.path.join(run_dir, phase_name)
     os.makedirs(phase_dir, exist_ok=True)
+    extra_kwargs = extra_kwargs or {}
 
-    searcher = param_search.RandomParameterSearch(
-        policies.sarsaWithQuantization, context,
-        n_trials=N_TRIALS, train_episodes=TRAIN_EPISODES, eval_episodes=EVAL_EPISODES,
-        seed=0, extra_kwargs=extra_kwargs, runs_per_trial=RUNS_PER_TRIAL,
-    )
-    best_params, _, search_best_metrics, results = searcher.run(verbose=True, parallel=False, n_workers=1)
-    print(f"[{phase_name}] best params:", best_params, "search metrics:", search_best_metrics)
+    param_ranges = {name: bounds for name, bounds in policies.sarsaWithQuantization.get_paramters_samples().items()
+                     if name != "actions_buckets"}
+    bucket_sizes = policies.sarsaWithQuantization.get_action_bucket_sizes()
 
-    # retrain the winning hyperparameters from scratch with a larger episode budget,
-    # averaging RETRAIN_RUNS independent runs and keeping the strongest one
-    best_metrics, best_policy, _ = param_search.run_config(
-        policies.sarsaWithQuantization, best_params, extra_kwargs or {}, context,
-        RETRAIN_EPISODES, EVAL_EPISODES, runs=RETRAIN_RUNS, disable=False,
-        desc_prefix=f"{phase_name} retrain ",
-    )
-    print(f"[{phase_name}] retrained ({RETRAIN_EPISODES} episodes x{RETRAIN_RUNS} runs) metrics:", best_metrics)
+    bucket_comparison = {}
+    overall = None  # (best_params, best_policy, best_metrics)
 
-    with open(os.path.join(phase_dir, "param_search_results.json"), "w") as f:
-        json.dump(results, f, indent=2)
-    plot_param_search_results(os.path.join(phase_dir, "param_search_results.png"), results, phase_name)
+    for size in bucket_sizes:
+        bucket_name = f"actions_buckets_{size}"
+        bucket_dir = os.path.join(phase_dir, bucket_name)
+        os.makedirs(bucket_dir, exist_ok=True)
+        size_kwargs = {**extra_kwargs, "actions_buckets": size}
+
+        searcher = param_search.RandomParameterSearch(
+            policies.sarsaWithQuantization, context, param_ranges=param_ranges,
+            n_trials=N_TRIALS, train_episodes=TRAIN_EPISODES, eval_episodes=EVAL_EPISODES,
+            seed=0, extra_kwargs=size_kwargs, runs_per_trial=RUNS_PER_TRIAL,
+        )
+        best_params, _, search_best_metrics, results = searcher.run(verbose=True, parallel=False, n_workers=1)
+        best_params = {**best_params, "actions_buckets": size}
+        print(f"[{phase_name}][actions_buckets={size}] best params:", best_params,
+              "search metrics:", search_best_metrics)
+
+        # retrain the winning hyperparameters from scratch with a larger episode budget,
+        # averaging RETRAIN_RUNS independent runs and keeping the strongest one
+        best_metrics, best_policy, _ = param_search.run_config(
+            policies.sarsaWithQuantization, best_params, extra_kwargs, context,
+            RETRAIN_EPISODES, EVAL_EPISODES, runs=RETRAIN_RUNS, disable=False,
+            desc_prefix=f"{phase_name} actions_buckets={size} retrain ",
+        )
+        print(f"[{phase_name}][actions_buckets={size}] retrained "
+              f"({RETRAIN_EPISODES} episodes x{RETRAIN_RUNS} runs) metrics:", best_metrics)
+
+        with open(os.path.join(bucket_dir, "param_search_results.json"), "w") as f:
+            json.dump(results, f, indent=2)
+        plot_param_search_results(os.path.join(bucket_dir, "param_search_results.png"), results,
+                                   f"{phase_name} (actions_buckets={size})")
+
+        bucket_comparison[bucket_name] = best_metrics
+        if overall is None or best_metrics["average_reward"] > overall[2]["average_reward"]:
+            overall = (best_params, best_policy, best_metrics)
+
+    best_params, best_policy, best_metrics = overall
+    plot_phase_comparison(os.path.join(phase_dir, "actions_buckets_comparison.png"), bucket_comparison)
+    print(f"[{phase_name}] best actions_buckets={best_params['actions_buckets']} "
+          f"with params={best_params}, metrics={best_metrics}")
 
     random_state_samples, random_action_samples = collect_samples(context, None, SAMPLE_EPISODES)
     best_state_samples, best_action_samples = collect_samples(context, best_policy, SAMPLE_EPISODES)
