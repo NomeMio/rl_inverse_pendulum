@@ -6,7 +6,7 @@ clc
 rng(2)
 modelGambler
 % load model
-load modelGambler.mat
+load modelGambler.mat;
 
 % gather dimensions
 S = size(R, 1);
@@ -23,7 +23,6 @@ count = 0;
 while true
     % increment the counter
     count = count + 1;
-    disp(count)
 
     % evaluate the current policy
     V = policy_evaluation(P, R, pi, gamma);

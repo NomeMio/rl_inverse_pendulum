@@ -1,0 +1,49 @@
+\documentclass[a4paper,12pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+
+\definecolor{accent}{RGB}{0,90,160}
+\definecolor{codebg}{RGB}{240,240,240}
+
+% Inline code/identifier highlighting (files, functions, variables)
+\newcommand{\code}[1]{\texttt{\textcolor{accent}{#1}}}
+
+% Callout box for definitions, parameter summaries, key remarks
+\newtcolorbox{infobox}[1][]{%
+    colback=accent!5,
+    colframe=accent,
+    fonttitle=\bfseries,
+    title={#1},
+    rounded corners,
+    boxrule=0.5pt,
+    left=6pt, right=6pt, top=3pt, bottom=3pt
+}
+
+\title{Relazione}
+\author{Alexandru Nazare}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\part{Homeworks}
+\input{homeworks/1/1}
+\input{homeworks/2/2}
+\input{homeworks/3/3}
+
+\part{Progetto}
+\input{project/project}
+
+\end{document}

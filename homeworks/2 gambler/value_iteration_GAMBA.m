@@ -6,7 +6,7 @@ clc
 rng(2)
 
 % load model
-load modelGambler.mat
+load modelGambler.mat;
 
 % treshold for stopping
 theta = 1e-6;
@@ -46,7 +46,7 @@ while true
         break;
     end
 
-    disp([count,Delta])
+    %disp([count,Delta]);
 end
 
 % the optimal policy is greedy with respect to Vstar
