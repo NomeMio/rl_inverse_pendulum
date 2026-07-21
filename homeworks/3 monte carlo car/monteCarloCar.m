@@ -22,10 +22,10 @@ sizePostions=size(positions,1);
 
 
 minVisits = 100;
-toll = 8e-2;
+toll = 1e-3;
 alpha = 1e-2;
-epsilon = 0.01;
-gamma = 0.60;
+epsilon = 0.1;
+gamma = 0.9;
 maxSpeed = 3;
 S = sizePostions*(2*maxSpeed+1)^2;
 
@@ -38,12 +38,12 @@ display('Monte Carlo completed. Final policy and value function obtained.');
 
 %% Visualize
 on_policy_policy = policy;
-visualizePolicy(roadGrid, policy, value, 'On-Policy MC', positions, maxSpeed);
+visualizePolicy(roadGrid, policy, value, 'On-Policy MC', positions, maxSpeed, N);
 
 
 %% off-policy Monte Carlo control
-[learned_policy, value, Q, C] = offPolicyMC(roadGrid, positions, S, A, maxSpeed, toll, gamma);
+[learned_policy, value, Q, C, N] = offPolicyMC(roadGrid, positions, S, A, maxSpeed, toll, gamma);
 
 %% Display learened policy
 display('Monte Carlo completed. Final policy and value function obtained for off policy.');
-visualizePolicy(roadGrid, learned_policy, value, 'Off-Policy MC', positions, maxSpeed);
+visualizePolicy(roadGrid, learned_policy, value, 'Off-Policy MC', positions, maxSpeed, N);
