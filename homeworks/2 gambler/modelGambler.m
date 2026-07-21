@@ -2,8 +2,8 @@ clear all
 close all
 clc
 
-gamma = 0.999;
-p = 0.40; % fair coin
+gamma = 0.4;
+p = 0.3; % fair coin
 
 % States: index s represents $(s-1) dollars
 %   s=1   -> $0   (broke, absorbing)
