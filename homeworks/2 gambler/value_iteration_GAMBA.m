@@ -1,7 +1,3 @@
-clear all
-close all
-clc
-
 % for reproducibility fix random seed
 rng(2)
 
@@ -67,21 +63,13 @@ for s = 1:S
     end
 end
 
-figure()
+subplot(1,2,2)
 contourf(capital, 1:A, Q', 20)
 colorbar
 hold on
 plot(capital, pi, 'r-', 'LineWidth', 2)
 xlabel('Capital ($)')
 ylabel('Bet ($)')
-title('Q-function and optimal policy (red)')
+title('Value iteration')
 xlim([0 100])
 ylim([1 A])
-
-figure()
-surf(capital, (1:A)', Q', 'EdgeColor', 'none')
-xlabel('Capital ($)')
-ylabel('Bet ($)')
-zlabel('Q-value')
-title('Q-function surface')
-colorbar

@@ -2,7 +2,7 @@ clear all
 close all
 clc
 
-gamma = 0.99;
+gamma = 0.999;
 p = 0.40; % fair coin
 
 % States: index s represents $(s-1) dollars
@@ -20,7 +20,6 @@ for s = 1:S
     money = s - 1; % dollar amount: 0..100
 
     if money == 0 || money == 100
-        % absorbing states: self-loop for all actions, zero reward
         for a = 1:A
             P(s, s, a) = 1;
         end
@@ -31,7 +30,6 @@ for s = 1:S
         bet = a;
 
         if bet > money
-            % can't bet more than you have: self-loop, zero reward
             P(s, s, a) = 1;
         else
             win_money  = min(money + bet, 100); % cap at $100
@@ -43,7 +41,6 @@ for s = 1:S
             P(s, s_win,  a) = p;
             P(s, s_lose, a) = 1 - p;
 
-            % reward +1 on reaching $100, -1 on going broke
             r_win  =  double(win_money  == 100);
             r_lose = -double(lose_money == 0);
             R(s, a) = p * r_win + (1 - p) * r_lose;
@@ -51,7 +48,6 @@ for s = 1:S
     end
 end
 
-% sanity check: each row of P must sum to 1 for every action
 for a = 1:A
     err = max(abs(sum(P(:,:,a), 2) - 1));
     if err > 1e-10
