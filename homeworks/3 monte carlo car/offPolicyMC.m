@@ -1,6 +1,6 @@
-function [learned_policy, value, Q, C, N] = offPolicyMC(roadGrid, positions, S, A, maxSpeed, toll, gamma)
+function [learned_policy, value, Q, C, N] = offPolicyMC(roadGrid, positions, S, A, maxSpeed, toll, gamma, epsilon)
 
-Q = -100 * ones(S,A);   % pessimistic init: below any achievable return (-1/(1-gamma) ~ -2.5)
+Q =-99*ones(S,A);   
 C = zeros(S,A);
 N = zeros(S,A);
 learned_policy = ones(S,1);
@@ -9,10 +9,7 @@ for s = 1:S
 end
 value_previous = -ones(S,1);
 
-% behavior policy b: uniform random, b(a|s) = 1/A for all s,a
-% target policy pi: deterministic greedy (learned_policy)
-% importance ratio when action matches target: pi(a|s)/b(a|s) = 1/(1/A) = A
-% when action doesn't match target: pi(a|s)=0 -> break
+
 
 getPositionIndex = @(y,x) find(positions(:,1) == y & positions(:,2) == x);
 getStateIndex = @(state) (getPositionIndex(state(2),state(1))-1)*(2*maxSpeed+1)^2 + (state(3)+maxSpeed)*(2*maxSpeed+1) + (state(4)+maxSpeed) + 1;
@@ -28,11 +25,11 @@ while true
     position.x = cols(randomIndex);
     position.y = rows(randomIndex);
     state   = [position.x, position.y, 0, 0];
-    actions = randi(A);   % uniform behavior for first step
+    actions = randi(A); % uniform behavior for first step
     [newState, reward] = modelCar(state, actions, roadGrid);
     states  = [getStateIndex(state), getStateIndex(newState)];
     rewards = reward;
-    maxSteps = 100000;
+    maxSteps = 10000;
     s = newState;
     while reward ~= 0 && length(states) < maxSteps
         a = randi(A);   % uniform behavior policy
@@ -46,8 +43,9 @@ while true
     T = length(states);
     G = 0;
     W = 1;
-    for t = T:-1:1
+    for t = T-1:-1:1
         G = gamma*G + rewards(t);
+        wupdateForEpsilon = 1 - epsilon + epsilon/A; % probability of taking the greedy action under the behavior policy
         N(states(t), actions(t)) = N(states(t), actions(t)) + 1;
         C(states(t), actions(t)) = C(states(t), actions(t)) + W;
         Q(states(t), actions(t)) = Q(states(t), actions(t)) + W/C(states(t), actions(t)) * (G - Q(states(t), actions(t)));
@@ -55,7 +53,7 @@ while true
         if actions(t) ~= learned_policy(states(t))
             break;   % target policy gives zero prob to this action -> stop
         end
-        W = W * A;   % pi(a|s)/b(a|s) = 1/(1/A) = A
+        W = W * A;   % 
     end
     value = zeros(S,1);
     for s = 1:S
@@ -67,12 +65,20 @@ while true
             policy_p(s) = find(Q(s,:) == max(Q(s,:)), 1, 'first');
         end
     end
-    if norm(value - value_previous, Inf) < toll && iterations > 1000
+    if norm(value - value_previous, Inf) < toll && iterations > 3000
         display(['Converged after ', num2str(iterations), ' iterations.', ' Norm difference: ', num2str(norm(value - value_previous, Inf))]);
         break;
     end
     learned_policy = policy_p;
     value_previous = value;
 end
+end
 
+function getEpsilonGreedyAction = getGreedyAction(Q, epsilon,stateIndex)
+    A = size(Q,2);
+    if rand < epsilon
+        getEpsilonGreedyAction = randi(A);
+    else
+        [~, getEpsilonGreedyAction] = max(Q(stateIndex,:));
+    end
 end
