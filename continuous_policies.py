@@ -37,6 +37,9 @@ class ActorPolicyContinuousSpace(GridSearchMixin):
             "alpha_w": [0.02, 0.05, 0.1],
             "alpha_rho": [0.005, 0.01, 0.02],
             "discount": [0.95, 0.99],
+            "value_features": [[0, 1, 2, 3]],
+            "mean_features": [[0, 1, 2, 3]],
+            "std_features": [[0, 1, 2, 3]],
         }
 
     def __init__(self, alpha_w: float = 0.1, alpha_rho: float = 0.1, discount: float = 0.85,
