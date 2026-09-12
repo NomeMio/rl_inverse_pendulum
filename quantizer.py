@@ -81,7 +81,7 @@ class StateQuantizer:
     """
 
     DEFAULT_RANGES = {
-        "position": (-1.0, 1.0),
+        "position": (-0.4, 0.4),
         "velocity": (-4.0, 4.0),
         "pole_angle": (-0.5, 0.5),
         "pole_angle_velocity": (-7.0, 7.0),

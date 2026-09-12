@@ -15,6 +15,7 @@ min_angle = [999999, 999999]
 max_angle = [0, 0]
 max_angular_velocity = [0, 0]
 min_angular_velocity = [9999999, 9999999]
+max_position =[0,0]
 
 
 
@@ -33,6 +34,10 @@ for i in range(10000):
                 max_velocity[1] = state.velocity
             if abs(state.velocity) < abs(min_velocity[1]):
                 min_velocity[1] = state.velocity
+        if state.position> max_position[0]:
+            max_position[0]=state.position
+        elif state.position< max_position[1]:
+            max_position[1]=state.position
         if state.pole_angle > 0:
             if abs(state.pole_angle) > abs(max_angle[0]):
                 max_angle[0] = state.pole_angle
@@ -63,13 +68,18 @@ print("Min angle: ", min_angle)
 print("Max angular velocity: ", max_angular_velocity)
 print("Min angular velocity: ", min_angular_velocity)
 print("steps: ", steps)
+print("max pso:",max_position)
+
+
+
 
 """
-Obtained values:
-Max velocity:  [3.3020846646483535, -3.717943610046488]
-Min velocity:  [2.959612574404691e-06, -1.166139481734163e-05]
-Max angle:  [0.4348863505502279, -0.41033682635665636]
-Min angle:  [2.7573416705381493e-06, -1.1367399891694385e-05]
-Max angular velocity:  [6.9075086085739095, -6.648303495892968]
-Min angular velocity:  [0.00018444125457239835, -0.00039769929497079914]
+Max velocity:  [np.float64(3.223877216522474), np.float64(-3.258557402319852)]
+Min velocity:  [np.float64(3.005851789535975e-05), np.float64(-9.606011766644107e-05)]
+Max angle:  [np.float64(0.42613279326154063), np.float64(-0.41454811566713234)]
+Min angle:  [np.float64(3.7123346650833056e-06), np.float64(-2.8237311640033624e-06)]
+Max angular velocity:  [np.float64(6.558890918014729), np.float64(-6.533446246380679)]
+Min angular velocity:  [np.float64(8.444263223994497e-06), np.float64(-0.00011147008250506074)]
+steps:  7.0
+max pso: [np.float64(0.4), np.float64(-0.4)]
 """

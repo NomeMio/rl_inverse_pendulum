@@ -1,6 +1,3 @@
-from math import exp
-import random
-
 import gymnasium as gym
 import time
 
@@ -62,7 +59,21 @@ class Cart_model:
     
     def do_action(self, action:Action):
         temp=self.env.step(action.get_action())
-        interaction= Interaction(State(temp[0]), action, temp[1], temp[2], temp[3], temp[4])
+
+        max_position = 0.4
+        if temp[0][0] > max_position:
+            temp[0][0] = max_position
+        elif temp[0][0] < -max_position:
+            temp[0][0] = -max_position  
+
+        
+        state=State(temp[0])
+        
+        
+        if abs(state.position)==max_position:
+            interaction= Interaction(state, action, -1, True, True, {"SpaceLimitTruncation": True})
+        else:    
+            interaction= Interaction(state, action, temp[1], temp[2], temp[3], temp[4])
         return interaction
     
     def close(self):
@@ -135,110 +146,3 @@ class Episode:
                 self.truncated=interaction.truncated
                 self.info=interaction.info
                 break
-
-
-
-
-
-class ActorPolicyContinuousSpace:
-    def __init__(self,alpha_w:float=0.1, alpha_rho:float=0.1, discount:float=0.85):
-        self.rho_m_size=2
-        self.rho_s_size=2
-        self.rho_size=4
-        self.rho=[random.uniform(-1, 1) for _ in range(self.rho_size)]
-        self.alpha_w=alpha_w
-        self.i=1
-        self.alpha_rho=alpha_rho
-        self.state=None
-        self.discount=discount
-        self.w=[random.uniform(-1, 1) for _ in range(self.rho_size)]
-        pass
-    @staticmethod
-    def get_paramters_samples(self):
-        return {
-            "alpha_w": (0.01,0.05, 0.005),
-            "alpha_rho": (0.01,0.05, 0.005),
-            "discount": (0.99, 0.9),
-        }
-    def get_parameters(self):
-        return {
-            "alpha_w": self.alpha_w,
-            "alpha_rho": self.alpha_rho,
-            "discount": self.discount,
-        }
-    def value(self, state:State):
-        features=self.get_features(state)
-        value=sum([self.w[i]*features[i] for i in range(len(features))])
-        return value
-    
-    def action_value(self, state:State):
-        m=self.m(state)
-        s=self.s(state)
-        action_value=random.gauss(m, s)
-        return action_value        
-    
-    def get_action(self, state:State):
-        action_value=self.action_value(state)
-        action=Action(action_value)
-        return action
-    
-    def m(self, state:State):
-        rho_m=self.get_rho_m()
-        features_rho_m=self.get_features_rho_m(state)
-        m=sum([rho_m[i]*features_rho_m[i] for i in range(len(rho_m))])
-        return m
-    def s(self, state:State):
-        rho_s=self.get_rho_s()
-        features_rho_s=self.get_features_rho_s(state)
-        s=sum([rho_s[i]*features_rho_s[i] for i in range(len(rho_s))])    
-        s = max(-1.0, min(2.0, s))
-
-        s=exp(s)
-        return s
-
-    def new_episode(self,state:State):
-        self.state=state
-        self.i=1
-
-    def update(self, reward, newstate:State,action:Action, terminated:bool=False):
-        bootstrap = 0.0 if terminated else self.value(newstate)
-        gamma=reward+self.discount*bootstrap-self.value(self.state)
-        features=self.get_features(self.state)
-        for i in range(self.rho_size):
-            self.w[i]+=self.alpha_w*gamma*features[i]
-        a=action.get_velocity()
-        rho_m_factor=(1/self.s(self.state)**2)*(a-self.m(self.state))
-        rho_s_factor=((a-self.m(self.state))**2/(self.s(self.state)**2)-1)
-        for i in range(self.rho_m_size):
-            self.rho[i]+=self.alpha_rho*gamma*self.i*rho_m_factor*self.get_features_rho_m(self.state)[i]
-        for i in range(self.rho_s_size):
-            self.rho[i+self.rho_m_size]+=self.alpha_rho*gamma*self.i*rho_s_factor*self.get_features_rho_s(self.state)[i]
-        self.i=self.i*self.discount
-        self.state=newstate
-
-    
-    def get_features(self, state:State):
-        return [
-            state.position ,
-            state.velocity ,
-            state.pole_angle ,
-            state.pole_angle_velocity ,
-        ]
-    
-    def get_features_rho_s(self, state:State):
-        return [
-            state.velocity,
-            state.pole_angle_velocity,
-        ]
-    def get_features_rho_m(self, state:State):
-        return [
-            state.position ,
-            state.pole_angle ,
-        ]
-    def get_rho_m(self):
-        return [self.rho[0], self.rho[1]]
-
-    def get_rho_s(self):
-        return [self.rho[2], self.rho[3]]
-
-
