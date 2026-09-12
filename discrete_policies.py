@@ -3,10 +3,11 @@ import os
 import random
 
 from cart_model import Action, State
+from hyperparam_search import GridSearchMixin
 from quantizer import ActionQuantizer, StateQuantizer
 
 
-class TabularQPolicy:
+class TabularQPolicy(GridSearchMixin):
     """
     Shared base for tabular TD-control methods over a discretized state and
     action space. The state key uses all four state variables (including
@@ -15,6 +16,15 @@ class TabularQPolicy:
     learn to avoid that failure mode). Subclasses only need to define the
     bootstrap target used in `update`.
     """
+
+    @classmethod
+    def default_param_grid(cls) -> dict:
+        return {
+            "gamma": [0.95, 0.99],
+            "alpha": [0.05, 0.15],
+            "n_state_buckets": [5, 9],
+            "n_action_buckets": [7, 11],
+        }
 
     def __init__(self, state_quantizer: StateQuantizer = None, action_quantizer: ActionQuantizer = None,
                  n_state_buckets: int = 7, n_action_buckets: int = 9,

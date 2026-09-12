@@ -3,11 +3,12 @@ import random
 from math import exp
 
 from cart_model import Action, State
+from hyperparam_search import GridSearchMixin
 from quantizer import ActionQuantizer
 from tile_coding import TileCoder
 
 
-class ActorPolicyContinuousSpace:
+class ActorPolicyContinuousSpace(GridSearchMixin):
     """
     One-step actor-critic with a Gaussian policy over linear features.
 
@@ -29,6 +30,14 @@ class ActorPolicyContinuousSpace:
     @staticmethod
     def default_feature_fn(state: State) -> list:
         return [state.position, state.velocity, state.pole_angle, state.pole_angle_velocity]
+
+    @classmethod
+    def default_param_grid(cls) -> dict:
+        return {
+            "alpha_w": [0.02, 0.05, 0.1],
+            "alpha_rho": [0.005, 0.01, 0.02],
+            "discount": [0.95, 0.99],
+        }
 
     def __init__(self, alpha_w: float = 0.1, alpha_rho: float = 0.1, discount: float = 0.85,
                  value_features: list = None, mean_features: list = None, std_features: list = None,
@@ -140,13 +149,20 @@ class ActorPolicyContinuousSpace:
         return policy
 
 
-class ReinforcePolicy:
+class ReinforcePolicy(GridSearchMixin):
     """
     Episodic (Monte Carlo) REINFORCE with a Gaussian policy over linear
     features, no value baseline. Same mean/log-std parameterization as
     ActorPolicyContinuousSpace, but the update happens once per episode
     using the full discounted returns instead of a TD bootstrap.
     """
+
+    @classmethod
+    def default_param_grid(cls) -> dict:
+        return {
+            "alpha_rho": [0.001, 0.005, 0.01],
+            "discount": [0.95, 0.99],
+        }
 
     def __init__(self, alpha_rho: float = 0.005, discount: float = 0.99):
         self.rho_m_size = 2
@@ -224,7 +240,7 @@ class ReinforcePolicy:
         return policy
 
 
-class SarsaTileCoding:
+class SarsaTileCoding(GridSearchMixin):
     """
     Semi-gradient SARSA over a tile-coded representation of the continuous
     4D state, with a discretized action space (reusing ActionQuantizer).
@@ -232,6 +248,15 @@ class SarsaTileCoding:
     """
 
     STATE_RANGES = [(-0.4, 0.4), (-4.0, 4.0), (-0.5, 0.5), (-7.0, 7.0)]
+
+    @classmethod
+    def default_param_grid(cls) -> dict:
+        return {
+            "alpha": [0.05, 0.1, 0.2],
+            "gamma": [0.95, 0.99],
+            "n_tilings": [4, 8],
+            "tiles_per_dim": [4, 6],
+        }
 
     def __init__(self, action_quantizer: ActionQuantizer = None, n_action_buckets: int = 9,
                  n_tilings: int = 8, tiles_per_dim: int = 6,
