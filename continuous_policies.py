@@ -9,21 +9,7 @@ from tile_coding import TileCoder
 
 
 class ActorPolicyContinuousSpace(GridSearchMixin):
-    """
-    One-step actor-critic with a Gaussian policy over linear features.
 
-    `feature_fn(state) -> list[float]` produces the full raw feature vector
-    (defaults to [position, velocity, pole_angle, pole_angle_velocity]).
-    Which of *those* features feed the value function (`w`), the policy mean
-    (`rho_m`) and the policy log-std (`rho_s`, exponentiated) is chosen via
-    index lists (`value_features`, `mean_features`, `std_features`) into
-    whatever `feature_fn` returns — so growing/shrinking/reordering the
-    feature set only means passing a different `feature_fn` (and matching
-    index lists); nothing else in the class assumes a fixed count of 4.
-    Defaults reproduce the original fixed split: value_features=[0,1,2,3],
-    mean_features=[0,2] (position, pole_angle), std_features=[1,3]
-    (velocity, pole_angle_velocity).
-    """
 
     DEFAULT_FEATURE_NAMES = ["position", "velocity", "pole_angle", "pole_angle_velocity"]
 
@@ -95,8 +81,8 @@ class ActorPolicyContinuousSpace(GridSearchMixin):
             self.w[i] += self.alpha_w * delta * features[i]
         a = action.get_velocity()
         m_s, s_s = self.m(state), self.s(state)
-        rho_m_factor = (1 / s_s ** 2) * (a - m_s)
-        rho_s_factor = ((a - m_s) ** 2 / s_s ** 2) - 1
+        rho_m_factor = (1 / (s_s ** 2)) * (a - m_s)
+        rho_s_factor = ((a - m_s) ** 2 / (s_s ** 2)) - 1
         for i in range(self.rho_m_size):
             self.rho[i] += self.alpha_rho * delta * self.i * rho_m_factor * self.get_features_rho_m(state)[i]
         for i in range(self.rho_s_size):
@@ -154,47 +140,83 @@ class ActorPolicyContinuousSpace(GridSearchMixin):
 
 class ReinforcePolicy(GridSearchMixin):
     """
-    Episodic (Monte Carlo) REINFORCE with a Gaussian policy over linear
-    features, no value baseline. Same mean/log-std parameterization as
-    ActorPolicyContinuousSpace, but the update happens once per episode
-    using the full discounted returns instead of a TD bootstrap.
+    Making action space discrete and using Reinforce with softmax(linear f)
     """
+
+    @staticmethod
+    def default_feature_fn(state: State) -> list:
+        """State-only features (no action here: each action gets its own
+        weight row instead -- see class docstring)."""
+        return [1.0, state.position, state.velocity, state.pole_angle, state.pole_angle_velocity]
 
     @classmethod
     def default_param_grid(cls) -> dict:
         return {
-            "alpha_rho": [0.001, 0.005, 0.01],
+            "alpha": [0.001, 0.005, 0.01],
             "discount": [0.95, 0.99],
         }
 
-    def __init__(self, alpha_rho: float = 0.005, discount: float = 0.99):
-        self.rho_m_size = 2
-        self.rho_s_size = 2
-        self.rho_size = 4
-        self.rho = [random.uniform(-1, 1) for _ in range(self.rho_size)]
-        self.alpha_rho = alpha_rho
+    def __init__(self, alpha: float = 0.005, discount: float = 0.99,
+                action_limits=None,
+                feature_fn=None):
+        self.feature_fn = feature_fn or self.default_feature_fn
+        self.alpha = alpha
+        self.action_limits = list(action_limits) if action_limits is not None else \
+            [-3.0, -2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+        self.num_actions = len(self.action_limits) - 1
         self.discount = discount
+        self.length_features = len(self.feature_fn(State([0.0, 0.0, 0.0, 0.0])))
+        self.weights = [[random.uniform(-1, 1) for _ in range(self.length_features)]
+                         for _ in range(self.num_actions)]
 
-    def m(self, state: State) -> float:
-        rho_m = self.get_rho_m()
-        features_rho_m = self.get_features_rho_m(state)
-        return sum(rho_m[i] * features_rho_m[i] for i in range(len(rho_m)))
+    def _action_for_index(self, i: int) -> Action:
+        return Action((self.action_limits[i] + self.action_limits[i + 1]) / 2.0)
 
-    def s(self, state: State) -> float:
-        rho_s = self.get_rho_s()
-        features_rho_s = self.get_features_rho_s(state)
-        s = sum(rho_s[i] * features_rho_s[i] for i in range(len(rho_s)))
-        s = max(-1.0, min(2.0, s))
-        return exp(s)
+    def _action_index(self, action: Action) -> int:
+        """Nearest bucket center to `action`'s velocity -- robust to the
+        exact float coming from anywhere (not just _action_for_index)."""
+        target = action.get_velocity()
+        best_i, best_d = 0, None
+        for i in range(self.num_actions):
+            center = (self.action_limits[i] + self.action_limits[i + 1]) / 2.0
+            d = abs(center - target)
+            if best_d is None or d < best_d:
+                best_i, best_d = i, d
+        return best_i
+
+    def _preferences(self, state: State) -> list:
+        features = self.feature_fn(state)
+        return [sum(w * f for w, f in zip(row, features)) for row in self.weights]
+
+    def _action_probs(self, state: State) -> list:
+        preferences = self._preferences(state)
+        max_pref = max(preferences)
+        exp_prefs = [exp(p - max_pref) for p in preferences]
+        total = sum(exp_prefs)
+        return [e / total for e in exp_prefs]
 
     def new_episode(self, state: State = None):
         pass
 
     def get_action(self, state: State, training: bool = False) -> Action:
-        action_value = random.gauss(self.m(state), self.s(state)) if training else self.m(state)
-        return Action(action_value)
+        probs = self._action_probs(state)
+        if not training:
+            best = max(range(self.num_actions), key=lambda i: probs[i])
+            return self._action_for_index(best)
+        uni = random.uniform(0, 1)
+        cumulative = 0.0
+        for i, p in enumerate(probs):
+            cumulative += p
+            if uni <= cumulative:
+                return self._action_for_index(i)
+        return self._action_for_index(self.num_actions - 1)
 
     def update_episode(self, trajectory: list, rewards: list):
+        # REINFORCE for softmax-in-action-preferences with a per-action
+        # weight row: grad_{theta_b} ln pi(a|s) = (1[b==a] - pi(b|s)) * x(s).
+        # Truncating trajectory to last 64 steps
+        #trajectory = trajectory[-64:]
+        #rewards = rewards[-64:]
         n = len(trajectory)
         returns = [0.0] * n
         running = 0.0
@@ -204,42 +226,39 @@ class ReinforcePolicy(GridSearchMixin):
         discount_pow = 1.0
         for t in range(n):
             state, action = trajectory[t]
-            a = action.get_velocity()
-            m_s, s_s = self.m(state), self.s(state)
-            grad_m = (a - m_s) / s_s ** 2
-            grad_s = ((a - m_s) ** 2 / s_s ** 2) - 1
-            coeff = self.alpha_rho * discount_pow * returns[t]
-            for i in range(self.rho_m_size):
-                self.rho[i] += coeff * grad_m * self.get_features_rho_m(state)[i]
-            for i in range(self.rho_s_size):
-                self.rho[i + self.rho_m_size] += coeff * grad_s * self.get_features_rho_s(state)[i]
+            a_idx = self._action_index(action)
+            features = self.feature_fn(state)
+            probs = self._action_probs(state)
+            coeff = self.alpha * discount_pow * returns[t]
+            for b in range(self.num_actions):
+                grad_coeff = (1.0 if b == a_idx else 0.0) - probs[b]
+                row = self.weights[b]
+                for k in range(self.length_features):
+                    row[k] += coeff * grad_coeff * features[k]
             discount_pow *= self.discount
-
-    def get_features_rho_m(self, state: State) -> list:
-        return [state.position, state.pole_angle]
-
-    def get_features_rho_s(self, state: State) -> list:
-        return [state.velocity, state.pole_angle_velocity]
-
-    def get_rho_m(self) -> list:
-        return [self.rho[0], self.rho[1]]
-
-    def get_rho_s(self) -> list:
-        return [self.rho[2], self.rho[3]]
 
     def save(self, dirname: str):
         import os
         os.makedirs(dirname, exist_ok=True)
         with open(os.path.join(dirname, "policy.json"), "w") as f:
-            json.dump({"rho": self.rho, "alpha_rho": self.alpha_rho, "discount": self.discount}, f)
+            json.dump({
+                "weights": self.weights,
+                "alpha": self.alpha,
+                "discount": self.discount,
+                "action_limits": self.action_limits,
+            }, f)
 
     @classmethod
-    def load(cls, dirname: str):
+    def load(cls, dirname: str, feature_fn=None):
+        """`feature_fn` must be passed again if a non-default one was used to
+        train the saved policy — it's a callable, so it isn't persisted in
+        the JSON file."""
         import os
         with open(os.path.join(dirname, "policy.json"), "r") as f:
             data = json.load(f)
-        policy = cls(alpha_rho=data["alpha_rho"], discount=data["discount"])
-        policy.rho = data["rho"]
+        policy = cls(alpha=data["alpha"], discount=data["discount"],
+                     action_limits=data["action_limits"], feature_fn=feature_fn)
+        policy.weights = data["weights"]
         return policy
 
 

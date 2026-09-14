@@ -60,7 +60,7 @@ class Cart_model:
     def do_action(self, action:Action):
         temp=self.env.step(action.get_action())
 
-        max_position = 0.4
+        max_position = 1.0  # Define the maximum position limit for the cart
         if temp[0][0] > max_position:
             temp[0][0] = max_position
         elif temp[0][0] < -max_position:
