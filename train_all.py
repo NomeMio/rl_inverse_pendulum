@@ -22,19 +22,12 @@ CONFIGS = {
         kwargs=dict(gamma=0.98, alpha=0.1, epsilon_start=0.5, epsilon_min=0.05,
                     n_state_buckets=7, n_action_buckets=9),
     ),
-    "actor_critic": dict(
-        cls=ActorPolicyContinuousSpace, episodes=5000, driver=train_step_policy,
-        kwargs=dict(alpha_w=0.05, alpha_rho=0.01, discount=0.99),
-    ),
+    
     "reinforce": dict(
         cls=ReinforcePolicy, episodes=5000, driver=train_episodic_policy,
         kwargs=dict(alpha_rho=0.005, discount=0.99),
     ),
-    "sarsa_tile_coding": dict(
-        cls=SarsaTileCoding, episodes=5000, driver=train_step_policy,
-        kwargs=dict(n_tilings=8, tiles_per_dim=6, alpha=0.1, gamma=0.98,
-                    epsilon_start=0.3, epsilon_min=0.02, n_action_buckets=9),
-    ),
+ 
 }
 
 

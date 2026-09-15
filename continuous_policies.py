@@ -8,146 +8,47 @@ from quantizer import ActionQuantizer
 from tile_coding import TileCoder
 
 
-class ActorPolicyContinuousSpace(GridSearchMixin):
-
-
-    DEFAULT_FEATURE_NAMES = ["position", "velocity", "pole_angle", "pole_angle_velocity"]
-
-    @staticmethod
-    def default_feature_fn(state: State) -> list:
-        return [state.position, state.velocity, state.pole_angle, state.pole_angle_velocity]
-
-    @classmethod
-    def default_param_grid(cls) -> dict:
-        return {
-            "alpha_w": [0.02, 0.05, 0.1],
-            "alpha_rho": [0.005, 0.01, 0.02],
-            "discount": [0.95, 0.99],
-            "value_features": [[0, 1, 2, 3]],
-            "mean_features": [[0, 1, 2, 3]],
-            "std_features": [[0, 1, 2, 3]],
-        }
-
-    def __init__(self, alpha_w: float = 0.1, alpha_rho: float = 0.1, discount: float = 0.85,
-                 value_features: list = None, mean_features: list = None, std_features: list = None,
-                 feature_fn=None):
-        self.feature_fn = feature_fn or self.default_feature_fn
-        self.value_features = list(value_features) if value_features is not None else [0, 1, 2, 3]
-        self.mean_features = list(mean_features) if mean_features is not None else [0, 2]
-        self.std_features = list(std_features) if std_features is not None else [1, 3]
-
-        self.rho_m_size = len(self.mean_features)
-        self.rho_s_size = len(self.std_features)
-        self.rho_size = self.rho_m_size + self.rho_s_size
-        self.rho = [random.uniform(-1, 1) for _ in range(self.rho_size)]
-        self.alpha_w = alpha_w
-        self.i = 1.0
-        self.alpha_rho = alpha_rho
-        self.discount = discount
-        self.w = [random.uniform(-1, 1) for _ in range(len(self.value_features))]
-
-    def _raw_features(self, state: State) -> list:
-        return self.feature_fn(state)
-
-    def value(self, state: State) -> float:
-        features = self.get_features(state)
-        return sum(self.w[i] * features[i] for i in range(len(features)))
-
-    def m(self, state: State) -> float:
-        rho_m = self.get_rho_m()
-        features_rho_m = self.get_features_rho_m(state)
-        return sum(rho_m[i] * features_rho_m[i] for i in range(len(rho_m)))
-
-    def s(self, state: State) -> float:
-        rho_s = self.get_rho_s()
-        features_rho_s = self.get_features_rho_s(state)
-        s = sum(rho_s[i] * features_rho_s[i] for i in range(len(rho_s)))
-        s = max(-1.0, min(2.0, s))
-        return exp(s)
-
-    def new_episode(self, state: State = None):
-        self.i = 1.0
-
-    def get_action(self, state: State, training: bool = False) -> Action:
-        action_value = random.gauss(self.m(state), self.s(state)) if training else self.m(state)
-        return Action(action_value)
-
-    def update(self, state: State, action: Action, reward: float, next_state: State, next_action: Action,
-               terminated: bool = False):
-        bootstrap = 0.0 if terminated else self.value(next_state)
-        delta = reward + self.discount * bootstrap - self.value(state)
-        features = self.get_features(state)
-        for i in range(len(self.w)):
-            self.w[i] += self.alpha_w * delta * features[i]
-        a = action.get_velocity()
-        m_s, s_s = self.m(state), self.s(state)
-        rho_m_factor = (1 / (s_s ** 2)) * (a - m_s)
-        rho_s_factor = ((a - m_s) ** 2 / (s_s ** 2)) - 1
-        for i in range(self.rho_m_size):
-            self.rho[i] += self.alpha_rho * delta * self.i * rho_m_factor * self.get_features_rho_m(state)[i]
-        for i in range(self.rho_s_size):
-            self.rho[i + self.rho_m_size] += self.alpha_rho * delta * self.i * rho_s_factor * self.get_features_rho_s(state)[i]
-        self.i *= self.discount
-
-    def get_features(self, state: State) -> list:
-        raw = self._raw_features(state)
-        return [raw[i] for i in self.value_features]
-
-    def get_features_rho_m(self, state: State) -> list:
-        raw = self._raw_features(state)
-        return [raw[i] for i in self.mean_features]
-
-    def get_features_rho_s(self, state: State) -> list:
-        raw = self._raw_features(state)
-        return [raw[i] for i in self.std_features]
-
-    def get_rho_m(self) -> list:
-        return self.rho[:self.rho_m_size]
-
-    def get_rho_s(self) -> list:
-        return self.rho[self.rho_m_size:self.rho_m_size + self.rho_s_size]
-
-    def save(self, dirname: str):
-        import os
-        os.makedirs(dirname, exist_ok=True)
-        with open(os.path.join(dirname, "policy.json"), "w") as f:
-            json.dump({
-                "w": self.w,
-                "rho": self.rho,
-                "alpha_w": self.alpha_w,
-                "alpha_rho": self.alpha_rho,
-                "discount": self.discount,
-                "value_features": self.value_features,
-                "mean_features": self.mean_features,
-                "std_features": self.std_features,
-            }, f)
-
-    @classmethod
-    def load(cls, dirname: str, feature_fn=None):
-        """`feature_fn` must be passed again if a non-default one was used to
-        train the saved policy — it's a callable, so it isn't persisted in
-        the JSON file."""
-        import os
-        with open(os.path.join(dirname, "policy.json"), "r") as f:
-            data = json.load(f)
-        policy = cls(alpha_w=data["alpha_w"], alpha_rho=data["alpha_rho"], discount=data["discount"],
-                     value_features=data["value_features"], mean_features=data["mean_features"],
-                     std_features=data["std_features"], feature_fn=feature_fn)
-        policy.w = data["w"]
-        policy.rho = data["rho"]
-        return policy
 
 
 class ReinforcePolicy(GridSearchMixin):
     """
-    Making action space discrete and using Reinforce with softmax(linear f)
+    Discrete-action REINFORCE with a softmax-in-preferences policy, in two
+    parameterizations selected by `weight_mode`:
+
+    - "per_action" (default): a separate weight row per action, applied to
+      state-only features -- preference(s,a) = weights[a] . x(s). This is
+      the current/default mode.
+    - "shared": a single weight vector shared across all actions, applied to
+      a joint feature_fn(state, action) -- preference(s,a) = weights . x(s,a).
+      This only works if x(s,a) actually varies with `a` (e.g. via state*action
+      interaction terms): any feature component that doesn't depend on the
+      action is identical across all actions for a given state, so it cancels
+      out exactly in the softmax (shift-invariance) and its weight's gradient
+      is mathematically zero -- it can never influence which action is
+      chosen. The default `default_feature_fn_shared` is built entirely from
+      such interaction terms for that reason; a custom feature_fn passed in
+      "shared" mode should follow the same rule.
     """
 
     @staticmethod
-    def default_feature_fn(state: State) -> list:
-        """State-only features (no action here: each action gets its own
-        weight row instead -- see class docstring)."""
+    def default_feature_fn_per_action(state: State) -> list:
+        """State-only features for "per_action" mode (each action already
+        gets its own weight row, so the action doesn't need to appear here)."""
         return [1.0, state.position, state.velocity, state.pole_angle, state.pole_angle_velocity]
+
+    @staticmethod
+    def default_feature_fn_shared(state: State, action: Action) -> list:
+        """Joint state*action interaction features for "shared" mode -- every
+        term depends on the action, so none of them can cancel in the softmax
+        (see class docstring)."""
+        a = action.get_velocity()
+        return [
+            a,
+            state.position*a,
+            state.velocity*a, 
+            state.pole_angle* a,
+            state.pole_angle_velocity * a,
+        ]
 
     @classmethod
     def default_param_grid(cls) -> dict:
@@ -158,16 +59,26 @@ class ReinforcePolicy(GridSearchMixin):
 
     def __init__(self, alpha: float = 0.005, discount: float = 0.99,
                 action_limits=None,
-                feature_fn=None):
-        self.feature_fn = feature_fn or self.default_feature_fn
+                feature_fn=None,
+                weight_mode: str = "per_action"):
+        if weight_mode not in ("per_action", "shared"):
+            raise ValueError(f"weight_mode must be 'per_action' or 'shared', got {weight_mode!r}")
+        self.weight_mode = weight_mode
         self.alpha = alpha
         self.action_limits = list(action_limits) if action_limits is not None else \
             [-3.0, -2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
         self.num_actions = len(self.action_limits) - 1
         self.discount = discount
-        self.length_features = len(self.feature_fn(State([0.0, 0.0, 0.0, 0.0])))
-        self.weights = [[random.uniform(-1, 1) for _ in range(self.length_features)]
-                         for _ in range(self.num_actions)]
+        probe_state = State([0.0, 0.0, 0.0, 0.0])
+        if weight_mode == "per_action":
+            self.feature_fn = feature_fn or self.default_feature_fn_per_action
+            self.length_features = len(self.feature_fn(probe_state))
+            self.weights = [[random.uniform(-1, 1) for _ in range(self.length_features)]
+                             for _ in range(self.num_actions)]
+        else:
+            self.feature_fn = feature_fn or self.default_feature_fn_shared
+            self.length_features = len(self.feature_fn(probe_state, Action(0.0)))
+            self.weights = [random.uniform(-1, 1) for _ in range(self.length_features)]
 
     def _action_for_index(self, i: int) -> Action:
         return Action((self.action_limits[i] + self.action_limits[i + 1]) / 2.0)
@@ -185,8 +96,13 @@ class ReinforcePolicy(GridSearchMixin):
         return best_i
 
     def _preferences(self, state: State) -> list:
-        features = self.feature_fn(state)
-        return [sum(w * f for w, f in zip(row, features)) for row in self.weights]
+        if self.weight_mode == "per_action":
+            features = self.feature_fn(state)
+            return [sum(w * f for w, f in zip(row, features)) for row in self.weights]
+        return [
+            sum(w * f for w, f in zip(self.weights, self.feature_fn(state, self._action_for_index(i))))
+            for i in range(self.num_actions)
+        ]
 
     def _action_probs(self, state: State) -> list:
         preferences = self._preferences(state)
@@ -212,11 +128,6 @@ class ReinforcePolicy(GridSearchMixin):
         return self._action_for_index(self.num_actions - 1)
 
     def update_episode(self, trajectory: list, rewards: list):
-        # REINFORCE for softmax-in-action-preferences with a per-action
-        # weight row: grad_{theta_b} ln pi(a|s) = (1[b==a] - pi(b|s)) * x(s).
-        # Truncating trajectory to last 64 steps
-        #trajectory = trajectory[-64:]
-        #rewards = rewards[-64:]
         n = len(trajectory)
         returns = [0.0] * n
         running = 0.0
@@ -227,14 +138,26 @@ class ReinforcePolicy(GridSearchMixin):
         for t in range(n):
             state, action = trajectory[t]
             a_idx = self._action_index(action)
-            features = self.feature_fn(state)
             probs = self._action_probs(state)
             coeff = self.alpha * discount_pow * returns[t]
-            for b in range(self.num_actions):
-                grad_coeff = (1.0 if b == a_idx else 0.0) - probs[b]
-                row = self.weights[b]
+            if self.weight_mode == "per_action":
+                # grad_{theta_b} ln pi(a|s) = (1[b==a] - pi(b|s)) * x(s)
+                features = self.feature_fn(state)
+                for b in range(self.num_actions):
+                    grad_coeff = (1.0 if b == a_idx else 0.0) - probs[b]
+                    row = self.weights[b]
+                    for k in range(self.length_features):
+                        row[k] += coeff * grad_coeff * features[k]
+            else:
+                # grad_theta ln pi(a|s) = x(s,a) - sum_b pi(b|s)*x(s,b)
+                taken_features = self.feature_fn(state, self._action_for_index(a_idx))
+                expected_features = [0.0] * self.length_features
+                for b in range(self.num_actions):
+                    f = self.feature_fn(state, self._action_for_index(b))
+                    for k in range(self.length_features):
+                        expected_features[k] += probs[b] * f[k]
                 for k in range(self.length_features):
-                    row[k] += coeff * grad_coeff * features[k]
+                    self.weights[k] += coeff * (taken_features[k] - expected_features[k])
             discount_pow *= self.discount
 
     def save(self, dirname: str):
@@ -246,6 +169,7 @@ class ReinforcePolicy(GridSearchMixin):
                 "alpha": self.alpha,
                 "discount": self.discount,
                 "action_limits": self.action_limits,
+                "weight_mode": self.weight_mode,
             }, f)
 
     @classmethod
@@ -257,110 +181,7 @@ class ReinforcePolicy(GridSearchMixin):
         with open(os.path.join(dirname, "policy.json"), "r") as f:
             data = json.load(f)
         policy = cls(alpha=data["alpha"], discount=data["discount"],
-                     action_limits=data["action_limits"], feature_fn=feature_fn)
+                     action_limits=data["action_limits"], feature_fn=feature_fn,
+                     weight_mode=data.get("weight_mode", "per_action"))
         policy.weights = data["weights"]
-        return policy
-
-
-class SarsaTileCoding(GridSearchMixin):
-    """
-    Semi-gradient SARSA over a tile-coded representation of the continuous
-    4D state, with a discretized action space (reusing ActionQuantizer).
-    On-policy TD control: Q(s,a) = sum(w[a][i] for i in active tile features).
-    """
-
-    STATE_RANGES = [(-0.4, 0.4), (-4.0, 4.0), (-0.5, 0.5), (-7.0, 7.0)]
-
-    @classmethod
-    def default_param_grid(cls) -> dict:
-        return {
-            "alpha": [0.05, 0.1, 0.2],
-            "gamma": [0.95, 0.99],
-            "n_tilings": [4, 8],
-            "tiles_per_dim": [4, 6],
-        }
-
-    def __init__(self, action_quantizer: ActionQuantizer = None, n_action_buckets: int = 9,
-                 n_tilings: int = 8, tiles_per_dim: int = 6,
-                 gamma: float = 0.98, alpha: float = 0.1,
-                 epsilon_start: float = 0.3, epsilon_min: float = 0.02, epsilon_decay_episodes: int = 2000):
-        self.action_quantizer = action_quantizer or ActionQuantizer(-3.0, 3.0, n_action_buckets)
-        self.tile_coder = TileCoder(self.STATE_RANGES, n_tilings=n_tilings, tiles_per_dim=tiles_per_dim)
-        self.w = [[0.0] * self.tile_coder.n_features for _ in range(self.action_quantizer.n_buckets)]
-        self.alpha = alpha / n_tilings
-        self.gamma = gamma
-        self.epsilon_start = epsilon_start
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay_episodes = epsilon_decay_episodes
-        self.episodes_taken = 0
-
-    def _state_vector(self, state: State) -> list:
-        return [state.position, state.velocity, state.pole_angle, state.pole_angle_velocity]
-
-    def _active(self, state: State) -> list:
-        return self.tile_coder.get_active_features(self._state_vector(state))
-
-    def _q_value(self, active: list, a_idx: int) -> float:
-        row = self.w[a_idx]
-        return sum(row[i] for i in active)
-
-    def current_epsilon(self) -> float:
-        return max(self.epsilon_min, self.epsilon_start * (1 - self.episodes_taken / self.epsilon_decay_episodes))
-
-    def new_episode(self, state: State = None):
-        self.episodes_taken += 1
-
-    def get_action(self, state: State, training: bool = False) -> Action:
-        epsilon = self.current_epsilon() if training else 0.0
-        active = self._active(state)
-        if random.random() < epsilon:
-            action_index = random.randrange(self.action_quantizer.n_buckets)
-        else:
-            q_values = [self._q_value(active, a) for a in range(self.action_quantizer.n_buckets)]
-            max_q = max(q_values)
-            best_indices = [i for i, q in enumerate(q_values) if q == max_q]
-            action_index = random.choice(best_indices)
-        return Action(self.action_quantizer.bucket_center(action_index))
-
-    def update(self, state: State, action: Action, reward: float, next_state: State, next_action: Action,
-               terminated: bool = False):
-        active = self._active(state)
-        a_idx = self.action_quantizer.discretize(action.get_velocity())
-        q_sa = self._q_value(active, a_idx)
-        if terminated:
-            bootstrap = 0.0
-        else:
-            next_active = self._active(next_state)
-            next_a_idx = self.action_quantizer.discretize(next_action.get_velocity())
-            bootstrap = self.gamma * self._q_value(next_active, next_a_idx)
-        td_error = reward + bootstrap - q_sa
-        row = self.w[a_idx]
-        for i in active:
-            row[i] += self.alpha * td_error
-
-    def save(self, dirname: str):
-        import os
-        os.makedirs(dirname, exist_ok=True)
-        with open(os.path.join(dirname, "policy.json"), "w") as f:
-            json.dump({
-                "w": self.w,
-                "alpha": self.alpha,
-                "gamma": self.gamma,
-                "epsilon_start": self.epsilon_start,
-                "epsilon_min": self.epsilon_min,
-                "epsilon_decay_episodes": self.epsilon_decay_episodes,
-            }, f)
-        self.action_quantizer.save(os.path.join(dirname, "action_quantizer.json"))
-
-    @classmethod
-    def load(cls, dirname: str):
-        import os
-        with open(os.path.join(dirname, "policy.json"), "r") as f:
-            data = json.load(f)
-        action_quantizer = ActionQuantizer.load(os.path.join(dirname, "action_quantizer.json"))
-        policy = cls(action_quantizer=action_quantizer, gamma=data["gamma"],
-                     epsilon_start=data["epsilon_start"], epsilon_min=data["epsilon_min"],
-                     epsilon_decay_episodes=data["epsilon_decay_episodes"])
-        policy.alpha = data["alpha"]
-        policy.w = data["w"]
         return policy
